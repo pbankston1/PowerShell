@@ -1,0 +1,254 @@
+# Make sure OneDrive is turned off before manipulating files if you are not running in a sandbox enviroment. All changes will replicate across computers and accounts if you dont do it on local machine
+# This script was designed to to run on primary admin computer account. It will create a master library folder structure and sort files from the desktop and downloads into it. It will also rename files with a consistent format and archive old files. The script is idempotent and can be run multiple times without causing issues. Make sure to customize the folder structure and file type mappings to fit your needs before running.
+# ============================
+# CONFIGURATION
+# ============================
+
+$root = "C:\Users\pbank\Documents\_MasterLibrary"
+
+# Auto-detect Desktop and Downloads (OneDrive-safe)
+$desktop = [Environment]::GetFolderPath("Desktop")
+$downloads = [Environment]::GetFolderPath("MyDocuments").Replace("Documents","Downloads")
+
+$sources = @($desktop, $downloads)
+
+# Log file
+$log = "$root\automation_log.txt"
+
+Function Log($msg) {
+    Add-Content -Path $log -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg"
+}
+
+# ============================
+# CREATE FOLDER STRUCTURE
+# ============================
+#Change or create your own naming conventions for the file system you want below. This is just a sample structure that can be easily modified to fit your needs. The script will create any missing folders in the structure when run.
+
+Function Create-FolderStructure {
+
+    $folders = @(
+        "$root\01_Work-IT\Certifications",
+        "$root\01_Work-IT\Projects",
+        "$root\01_Work-IT\Scripts",
+        "$root\01_Work-IT\Documentation",
+        "$root\01_Work-IT\Job Applications",
+
+        "$root\02_Resumes\Master Versions",
+        "$root\02_Resumes\Job-Specific Versions",
+        "$root\02_Resumes\Cover Letters",
+
+        "$root\03_School\MBA",
+        "$root\03_School\Assignments",
+        "$root\03_School\Research",
+        "$root\03_School\Notes",
+
+        "$root\04_Personal\IDs_Records",
+        "$root\04_Personal\Legal",
+        "$root\04_Personal\Life_Admin",
+        "$root\04_Personal\Misc",
+
+        "$root\05_CPU-Files\Drivers",
+        "$root\05_CPU-Files\Utilities",
+        "$root\05_CPU-Files\Installers",
+        "$root\05_CPU-Files\System_Logs",
+
+        "$root\06_Small-Business\Branding",
+        "$root\06_Small-Business\Merch_Designs",
+        "$root\06_Small-Business\Financial",
+        "$root\06_Small-Business\Operations",
+        "$root\06_Small-Business\Marketing",
+
+        "$root\07_Projects\Coding",
+        "$root\07_Projects\Design",
+        "$root\07_Projects\Research",
+        "$root\07_Projects\Misc",
+
+        "$root\08_Medical\Records",
+        "$root\08_Medical\Labs",
+        "$root\08_Medical\Imaging",
+        "$root\08_Medical\Insurance",
+
+        "$root\09_Military\DD214_Service_Docs",
+        "$root\09_Military\Awards",
+        "$root\09_Military\Medical",
+        "$root\09_Military\Training",
+
+        "$root\10_Photos-Media\Events",
+        "$root\10_Photos-Media\Family",
+        "$root\10_Photos-Media\Work",
+        "$root\10_Photos-Media\Misc",
+
+        "$root\11_Archive"
+    )
+
+    foreach ($folder in $folders) {
+        if (-not (Test-Path $folder)) {
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            Log "Created folder: $folder"
+        }
+    }
+}
+
+# ============================
+# SORTING ENGINE
+# ============================
+
+Function Sort-Files {
+
+    $mapping = @{
+        "ps1" = "$root\01_Work-IT\Scripts"
+        "cmd" = "$root\01_Work-IT\Scripts"
+        "bat" = "$root\01_Work-IT\Scripts"
+        "log" = "$root\01_Work-IT\Documentation"
+        "csv" = "$root\01_Work-IT\Documentation"
+
+        "doc"  = "$root\02_Resumes"
+        "docx" = "$root\02_Resumes"
+
+        "ppt"  = "$root\03_School"
+        "pptx" = "$root\03_School"
+        "xlsx" = "$root\03_School"
+
+        "txt" = "$root\04_Personal"
+
+        "exe" = "$root\05_CPU-Files\Installers"
+        "msi" = "$root\05_CPU-Files\Installers"
+        "dll" = "$root\05_CPU-Files\Utilities"
+
+        "png" = "$root\06_Small-Business\Merch_Designs"
+        "jpg" = "$root\06_Small-Business\Merch_Designs"
+        "jpeg" = "$root\06_Small-Business\Merch_Designs"
+
+        "json" = "$root\07_Projects\Coding"
+        "xml"  = "$root\07_Projects\Coding"
+
+        "tif" = "$root\08_Medical\Imaging"
+        "tiff" = "$root\08_Medical\Imaging"
+
+        "mp4" = "$root\10_Photos-Media"
+        "mov" = "$root\10_Photos-Media"
+        "mp3" = "$root\10_Photos-Media"
+    }
+
+    foreach ($source in $sources) {
+
+        if (-not (Test-Path $source)) {
+            Log "SKIPPED source (not found): $source"
+            continue
+        }
+
+        Get-ChildItem -Path $source -File -Recurse | ForEach-Object {
+
+            $ext = $_.Extension.TrimStart('.').ToLower()
+
+            if ($mapping.ContainsKey($ext)) {
+
+                $dest = $mapping[$ext]
+                if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }
+
+                try {
+                    Move-Item -Path $_.FullName -Destination $dest -Force -ErrorAction Stop
+                    Log "Moved: $($_.Name) -> $dest"
+                }
+                catch {
+                    Log "SKIPPED (locked or error): $($_.FullName)"
+                }
+            }
+        }
+    }
+}
+
+# ============================
+# RENAMING ENGINE (SAFE)
+# ============================
+# This is the renaming convetion I started with. Will most likely shorten it but change text around to fit whatever naming convention you want.
+
+Function Rename-Files {
+
+    Get-ChildItem -Path $root -File -Recurse | ForEach-Object {
+
+        $folder = Split-Path $_.DirectoryName -Leaf
+        $date = $_.LastWriteTime.ToString("yyyy-MM-dd")
+        $name = $_.BaseName -replace '[^a-zA-Z0-9\- ]',''
+        $ext = $_.Extension
+
+        $newName = "$date - $folder - $name - v1$ext"
+        $newPath = Join-Path $_.DirectoryName $newName
+
+        try {
+            Rename-Item -Path $_.FullName -NewName $newName -ErrorAction Stop
+            Log "Renamed: $($_.Name) -> $newName"
+        }
+        catch {
+            Log "SKIPPED rename (locked or too long): $($_.FullName)"
+        }
+    }
+}
+
+# ============================
+# ARCHIVE ENGINE
+# ============================
+
+Function Archive-OldFiles {
+
+    $cutoff = (Get-Date).AddMonths(-12)
+
+    Get-ChildItem -Path $root -File -Recurse | ForEach-Object {
+
+        if ($_.LastWriteTime -lt $cutoff) {
+
+            $year = $_.LastWriteTime.Year
+            $archivePath = "$root\11_Archive\$year"
+
+            if (-not (Test-Path $archivePath)) {
+                New-Item -ItemType Directory -Path $archivePath | Out-Null
+            }
+
+            try {
+                Move-Item -Path $_.FullName -Destination $archivePath -ErrorAction Stop
+                Log "Archived: $($_.Name) -> $archivePath"
+            }
+            catch {
+                Log "SKIPPED archive (locked): $($_.FullName)"
+            }
+        }
+    }
+}
+
+# ============================
+# CLEAN DESKTOP (OneDrive-safe)
+# ============================
+
+Function Clean-Desktop {
+
+    $desktop = [Environment]::GetFolderPath("Desktop")
+
+    if (-not (Test-Path $desktop)) {
+        Log "Desktop not found: $desktop"
+        return
+    }
+
+    Get-ChildItem -Path $desktop -File | Where-Object { $_.Extension -ne ".lnk" } | ForEach-Object {
+
+        try {
+            Move-Item -Path $_.FullName -Destination "$root\04_Personal\Misc" -ErrorAction Stop
+            Log "Desktop cleaned: $($_.Name)"
+        }
+        catch {
+            Log "SKIPPED desktop file (locked): $($_.FullName)"
+        }
+    }
+}
+
+# ============================
+# RUN EVERYTHING
+# ============================
+
+Create-FolderStructure
+Sort-Files
+Rename-Files
+Archive-OldFiles
+Clean-Desktop
+
+Log "Automation cycle complete."
+Write-Host "Automation complete."
