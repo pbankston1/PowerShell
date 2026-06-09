@@ -1,0 +1,157 @@
+TECH NEWS DAILY — README
+========================
+
+This system automatically collects daily tech news from multiple sources,
+builds a clean HTML newsletter, and emails it to you every morning using
+Outlook Desktop.
+
+It does NOT use SMTP, App Passwords, Azure, or OAuth. It relies entirely
+on Outlook Desktop’s built‑in ability to send email from your logged‑in
+account.
+
+------------------------------------------------------------
+REQUIREMENTS (READ THIS FIRST)
+------------------------------------------------------------
+
+1. Outlook Desktop MUST be installed.
+   - Outlook Web (browser) is NOT enough.
+   - Any Microsoft 365 or standalone Outlook install works.
+
+2. Outlook MUST be logged into the email account you want to send from.
+   - The script uses Outlook’s COM automation to send email.
+   - No passwords, no SMTP, no MFA issues.
+
+3. You MUST create a forwarding rule in Outlook.com (webmail):
+   - Go to: https://outlook.live.com
+   - Settings → Mail → Rules → Add Rule
+   - Condition 1: From = your Outlook email address
+   - Condition 2: Subject includes = TechNewsDaily
+   - Action: Forward to your real email (Gmail, work, etc.)
+
+   This allows the script to send the email to yourself, and Outlook
+   forwards it automatically.
+
+4. Windows must allow Outlook COM automation.
+   - If Outlook asks “Allow access?”, click Allow.
+
+5. The installer MUST be run as Administrator.
+   - It auto‑elevates, but you must approve the UAC prompt.
+
+------------------------------------------------------------
+FILES INCLUDED IN THIS PACKAGE
+------------------------------------------------------------
+
+Install-TechNews.ps1
+    - Auto‑elevating installer
+    - Auto‑unblocks itself
+    - Sets execution policy for this session only
+    - Copies the daily script to C:\TechNewsDaily
+    - Prompts for your Outlook email
+    - Creates a scheduled task that runs daily at 7 AM
+
+Get-TechNews.ps1
+    - The daily script
+    - Collects tech news from multiple RSS/Atom/JSON feeds
+    - Builds a full HTML newsletter with clickable links
+    - Saves the report to C:\TechNewsDaily
+    - Sends the email using Outlook Desktop
+    - Outlook forwards it using your rule
+
+README.txt
+    - This file
+
+------------------------------------------------------------
+INSTALLATION INSTRUCTIONS
+------------------------------------------------------------
+
+1. Create a folder anywhere on your computer, for example:
+       C:\TechNewsInstaller\
+
+2. Place BOTH of these files inside it:
+       Install-TechNews.ps1
+       Get-TechNews.ps1
+
+3. Right‑click Install-TechNews.ps1 → Run with PowerShell
+   - Approve the elevation prompt
+   - Enter your Outlook email when asked
+
+4. The installer will:
+   - Create C:\TechNewsDaily\
+   - Copy Get-TechNews.ps1 into it
+   - Save your email to email.txt
+   - Create a scheduled task named "DailyTechNewsCollector"
+   - Run every day at 7 AM
+
+------------------------------------------------------------
+VERIFYING INSTALLATION
+------------------------------------------------------------
+
+After installation:
+
+1. Open Task Scheduler
+2. Go to: Task Scheduler Library
+3. Look for: DailyTechNewsCollector
+4. Right‑click → Run
+
+You should receive an email in your Outlook inbox with:
+   - Subject: TechNewsDaily
+   - HTML body
+   - Attached HTML report
+
+If your forwarding rule is correct, it will automatically forward to
+your Gmail (or whatever email you chose).
+
+------------------------------------------------------------
+HOW TO RUN MANUALLY
+------------------------------------------------------------
+
+You can run the daily script manually at any time:
+
+powershell.exe -ExecutionPolicy Bypass -File C:\TechNewsDaily\Get-TechNews.ps1
+
+------------------------------------------------------------
+TROUBLESHOOTING
+------------------------------------------------------------
+
+1. If you still get a .md file:
+   - You are using the old script.
+   - Replace Get-TechNews.ps1 with the HTML version.
+   - Delete C:\TechNewsDaily and reinstall.
+
+2. If Outlook does NOT forward the email:
+   - Your rule is incorrect.
+   - The subject MUST be exactly: TechNewsDaily
+   - The sender MUST be your Outlook email address.
+
+3. If the installer says it cannot find Get-TechNews.ps1:
+   - Both files MUST be in the same folder before running the installer.
+
+4. If you get “running scripts is disabled”:
+   - The installer auto‑fixes this.
+   - Just approve the elevation prompt.
+
+------------------------------------------------------------
+UNINSTALLING
+------------------------------------------------------------
+
+1. Delete the folder:
+       C:\TechNewsDaily\
+
+2. Remove the scheduled task:
+       Task Scheduler → Task Scheduler Library
+       Delete: DailyTechNewsCollector
+
+3. Delete the installer folder:
+       C:\TechNewsInstaller\
+
+------------------------------------------------------------
+SUPPORT
+------------------------------------------------------------
+
+If you need:
+   - A dark mode HTML version
+   - A more polished newsletter layout
+   - A version that posts to Discord or Slack
+   - A version that includes images or logos
+
+Just ask and it can be added.
