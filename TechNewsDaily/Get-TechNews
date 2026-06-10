@@ -1,40 +1,26 @@
-<#
-    =====================================================================
-    TECH NEWS DAILY — HTML EMAIL VERSION (OUTLOOK CLIENT SEND)
-    =====================================================================
-
-    This version:
-      - Generates a full HTML newsletter
-      - Makes all article links clickable
-      - Sends HTML email via Outlook Desktop
-      - Produces a .html report file instead of markdown
-
-    FRONT-END REQUIREMENTS:
-      - Outlook Desktop installed
-      - Outlook logged into your account
-      - Forwarding rule in Outlook.com:
-          From: yourself
-          Subject contains: TechNewsDaily
-          Forward to: your real email
-    =====================================================================
-#>
+# =====================================================================
+# TECH NEWS DAILY — HTML + PDF VERSION (OUTLOOK CLIENT SEND)
+# =====================================================================
 
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$BasePath = "C:\TechNewsDaily"
-$Date = (Get-Date).ToString("yyyy-MM-dd")
-$OutputFile = "$BasePath\TechNews_$Date.html"
-$LogFile = "$BasePath\TechNews.log"
+$BasePath  = "C:\TechNewsDaily"
+$Date      = (Get-Date).ToString("yyyy-MM-dd")
+$HtmlFile  = "$BasePath\TechNews_$Date.html"
+$PdfFile   = "$BasePath\TechNews_$Date.pdf"
+$LogFile   = "$BasePath\TechNews.log"
 $EmailFile = "$BasePath\email.txt"
 
-$EmailFrom = Get-Content $EmailFile
-$EmailTo = $EmailFrom
+$EmailTo = Get-Content $EmailFile
 
 $EmailSubject = "TechNewsDaily"
-$EmailBody = "<h2>Your Daily Tech News Report for $Date</h2><p>See attached full report.</p>"
+$EmailBody    = "<h2>Your Daily Tech News Report for $Date</h2><p>PDF attached.</p>"
 
-# RSS/Atom/JSON feeds
+# =====================================================================
+# FEEDS
+# =====================================================================
+
 $Feeds = @(
     "https://feeds.arstechnica.com/arstechnica/technology-lab",
     "https://www.wired.com/feed/rss",
@@ -55,28 +41,64 @@ $Feeds = @(
     "https://developer.nvidia.com/blog/feed/"
 )
 
-# Clean summary helper
+Add-Type -AssemblyName System.Web
+
+# =====================================================================
+# CLEAN NODE (fixes System.Xml.XmlElement)
+# =====================================================================
+
+function Clean-Node {
+    param($Node)
+
+    if (-not $Node) { return "" }
+
+    if ($Node -is [System.Xml.XmlNode]) {
+        $text = $Node.InnerText
+    } else {
+        $text = [string]$Node
+    }
+
+    $text = ($text -replace "<[^>]+>", " ")
+    $text = [System.Web.HttpUtility]::HtmlDecode($text)
+    $text = $text -replace "\s+", " "
+    $text = $text.Trim()
+
+    return $text
+}
+
+# =====================================================================
+# SUMMARY
+# =====================================================================
+
 function Get-Summary {
     param($Text)
-    if (-not $Text) { return "" }
-    $clean = ($Text -replace '<[^>]+>', '') -replace '\s+', ' '
-    $clean = $clean.Trim()
-    $sentences = $clean -split '(?<=[\.!\?])\s+'
+
+    $clean = Clean-Node $Text
+    if (-not $clean) { return "" }
+
+    $sentences = $clean -split "(?<=[\.!\?])\s+"
+
     if ($sentences.Count -gt 2) {
-        $summary = ($sentences[0..1] -join ' ')
+        $summary = ($sentences[0..1] -join " ")
     } else {
         $summary = $clean
     }
+
     if ($summary.Length -gt 400) {
         $summary = $summary.Substring(0, 400) + "..."
     }
+
     return $summary
 }
 
-# Start HTML document
+# =====================================================================
+# START HTML DOCUMENT (SAFE HEADER)
+# =====================================================================
+
 $Content = @"
 <html>
 <head>
+<meta charset='UTF-8'>
 <style>
 body { font-family: Arial, sans-serif; line-height: 1.5; }
 h1 { color: #333; }
@@ -92,6 +114,10 @@ h2 { color: #444; margin-top: 30px; }
 
 $Seen = @{}
 
+# =====================================================================
+# PROCESS FEEDS
+# =====================================================================
+
 foreach ($Feed in $Feeds) {
     try {
         $Headers = @{
@@ -104,13 +130,12 @@ foreach ($Feed in $Feeds) {
 
         $Content += "<h2>Source: $Feed</h2>"
 
-        # Detect feed type
-        if ($raw.StartsWith("<?xml") -or $raw.Contains("<rss")) {
-            $rss = [xml]$raw
+        if ($raw.Contains("<rss")) {
+            $rss   = [xml]$raw
             $items = $rss.rss.channel.item | Select-Object -First 10
         }
         elseif ($raw.Contains("<feed")) {
-            $atom = [xml]$raw
+            $atom  = [xml]$raw
             $items = $atom.feed.entry | Select-Object -First 10
         }
         elseif ($raw.StartsWith("{") -or $raw.StartsWith("[")) {
@@ -126,29 +151,40 @@ foreach ($Feed in $Feeds) {
         }
 
         foreach ($item in $items) {
-            $title = $item.title
+
+            $title = Clean-Node $item.title
             if (-not $title) { continue }
 
-            # Extract link
-            if ($item.link.href) { $link = $item.link.href }
-            elseif ($item.link) { $link = $item.link }
-            elseif ($item.url) { $link = $item.url }
-            else { $link = $Feed }
+            if ($item.link.href)      { $link = Clean-Node $item.link.href }
+            elseif ($item.link)       { $link = Clean-Node $item.link }
+            elseif ($item.url)        { $link = Clean-Node $item.url }
+            else                      { $link = Clean-Node $Feed }
 
-            # Extract description
-            if ($item.summary) { $desc = $item.summary }
-            elseif ($item.description) { $desc = $item.description }
-            elseif ($item.content) { $desc = $item.content }
-            else { $desc = "" }
+            if ($item.summary) {
+                $desc = Clean-Node $item.summary
+            }
+            elseif ($item.description) {
+                $desc = Clean-Node $item.description
+            }
+            elseif ($item.'content:encoded') {
+                $desc = Clean-Node $item.'content:encoded'
+            }
+            elseif ($item.content) {
+                $desc = Clean-Node $item.content
+            }
+            elseif ($item.'media:group') {
+                $desc = Clean-Node $item.'media:group'
+            }
+            else {
+                $desc = ""
+            }
 
-            # Deduplicate
             $key = "$title|$link".ToLower()
             if ($Seen.ContainsKey($key)) { continue }
             $Seen[$key] = $true
 
             $summary = Get-Summary $desc
 
-            # Add HTML article block
             $Content += @"
 <div class='article'>
   <div class='title'><a href='$link'>$title</a></div>
@@ -163,28 +199,77 @@ foreach ($Feed in $Feeds) {
     }
 }
 
-# Close HTML
 $Content += "</body></html>"
 
-# Save HTML report
-$Content | Out-File -FilePath $OutputFile -Encoding UTF8
+# =====================================================================
+# SAVE HTML (UTF‑8 NO BOM FOR POWERSHELL 5.1)
+# =====================================================================
 
-Add-Content -Path $LogFile -Value "$(Get-Date) - Created $OutputFile"
+[System.IO.File]::WriteAllText(
+    $HtmlFile,
+    $Content,
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
-# SEND EMAIL USING OUTLOOK CLIENT (HTML)
+Add-Content -Path $LogFile -Value "$(Get-Date) - Created HTML $HtmlFile"
+
+# =====================================================================
+# PDF EXPORT (EDGE HEADLESS)
+# =====================================================================
+
+$EdgePaths = @(
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe"
+)
+
+$EdgeExe = $EdgePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $EdgeExe) {
+    Add-Content -Path $LogFile -Value "$(Get-Date) - ERROR: Edge not found. PDF not created."
+} else {
+    try {
+        if (Test-Path $PdfFile) { Remove-Item $PdfFile -Force }
+
+        Start-Process -FilePath $EdgeExe `
+            -ArgumentList "--headless", "--disable-gpu", "--print-to-pdf=$PdfFile", "`"$HtmlFile`"" `
+            -NoNewWindow -Wait
+
+        $timeout = 0
+        while (!(Test-Path $PdfFile) -and $timeout -lt 20) {
+            Start-Sleep -Milliseconds 500
+            $timeout++
+        }
+
+        if (Test-Path $PdfFile) {
+            Add-Content -Path $LogFile -Value "$(Get-Date) - PDF created successfully: $PdfFile"
+        } else {
+            Add-Content -Path $LogFile -Value "$(Get-Date) - ERROR: PDF generation failed."
+        }
+    }
+    catch {
+        Add-Content -Path $LogFile -Value "$(Get-Date) - PDF export FAILED - $($_.Exception.Message)"
+    }
+}
+
+# =====================================================================
+# SEND EMAIL (HTML + PDF)
+# =====================================================================
+
 try {
     $Outlook = New-Object -ComObject Outlook.Application
-    $Mail = $Outlook.CreateItem(0)
+    $Mail    = $Outlook.CreateItem(0)
 
-    $Mail.To = $EmailTo
-    $Mail.Subject = $EmailSubject
+    $Mail.To       = $EmailTo
+    $Mail.Subject  = $EmailSubject
     $Mail.HTMLBody = $EmailBody
-    $Mail.Attachments.Add($OutputFile)
-    $Mail.Send()
 
+    if (Test-Path $PdfFile) {
+        $Mail.Attachments.Add($PdfFile)
+    }
+
+    $Mail.Send()
     Add-Content -Path $LogFile -Value "$(Get-Date) - Email sent via Outlook client to $EmailTo"
 }
 catch {
     Add-Content -Path $LogFile -Value "$(Get-Date) - Email FAILED via Outlook client - $($_.Exception.Message)"
 }
-
