@@ -1,0 +1,128 @@
+============================================================
+                 TechNewsDaily – README
+============================================================
+
+Thank you for installing TechNewsDaily!
+
+This tool automatically collects the latest technology,
+security, cloud, and AI news every morning at 8:00 AM.
+It generates a clean PDF report and emails it directly to you.
+
+This document explains how to install, run, and manage it.
+
+------------------------------------------------------------
+1. WHAT THE INSTALLER DOES
+------------------------------------------------------------
+
+When you run Install-TechNews.ps1 as Administrator, it will:
+
+1. Ask for your email address
+2. Create the folder:
+       C:\TechNewsDaily
+3. Save your email to:
+       C:\TechNewsDaily\email.txt
+4. Install wkhtmltopdf (required for PDF generation)
+5. Create the main script:
+       C:\TechNewsDaily\Get-TechNews.ps1
+6. Create a scheduled task that runs every day at 8:00 AM
+7. Send you a daily tech news PDF and HTML email
+
+After installation, everything runs automatically.
+
+------------------------------------------------------------
+2. HOW TO INSTALL
+------------------------------------------------------------
+
+1. Right-click the Start Menu
+2. Select: “Windows Terminal (Admin)” or “PowerShell (Admin)”
+3. Run the following command:
+
+       pwsh -ExecutionPolicy Bypass -File Install-TechNews.ps1
+
+4. When prompted, enter the email address where you want to
+   receive your daily tech news report.
+
+That’s it. The installer handles everything else.
+
+------------------------------------------------------------
+3. HOW THE DAILY REPORT WORKS
+------------------------------------------------------------
+
+Every morning at 8:00 AM:
+
+- The script downloads the latest articles from major tech,
+  security, cloud, and AI news sources.
+- It removes duplicates.
+- It formats everything into a clean HTML report.
+- It converts the HTML into a PDF.
+- It emails both the HTML and PDF versions to you.
+
+You do not need to open anything or run anything manually.
+
+------------------------------------------------------------
+4. HOW TO RUN THE REPORT MANUALLY
+------------------------------------------------------------
+
+If you want to run the report immediately:
+
+1. Open PowerShell 7
+2. Run:
+
+       pwsh -File C:\TechNewsDaily\Get-TechNews.ps1
+
+You will receive the email within a few seconds.
+
+------------------------------------------------------------
+5. HOW TO CHANGE YOUR EMAIL ADDRESS
+------------------------------------------------------------
+
+Edit this file:
+
+       C:\TechNewsDaily\email.txt
+
+Replace the email with a new one.
+The next scheduled run will use the updated address.
+
+------------------------------------------------------------
+6. HOW TO CHANGE THE RUN TIME
+------------------------------------------------------------
+
+1. Open Task Scheduler
+2. Find the task named:
+       TechNewsDaily
+3. Right-click → Properties → Triggers
+4. Change the time to whatever you prefer.
+
+------------------------------------------------------------
+7. HOW TO UNINSTALL
+------------------------------------------------------------
+
+1. Open Task Scheduler
+2. Delete the task:
+       TechNewsDaily
+
+3. Delete the folder:
+       C:\TechNewsDaily
+
+4. (Optional) Uninstall wkhtmltopdf from:
+       Settings → Apps → Installed Apps
+
+------------------------------------------------------------
+8. REQUIREMENTS
+------------------------------------------------------------
+
+- Windows 10 or Windows 11
+- PowerShell 7 (pwsh.exe)
+- Administrator privileges during installation
+- Outlook installed and configured (for sending email)
+
+------------------------------------------------------------
+9. SUPPORT
+------------------------------------------------------------
+
+If you need help reinstalling, updating, or modifying the
+script, contact the person who provided this installer.
+
+============================================================
+               Thank you for using TechNewsDaily!
+============================================================

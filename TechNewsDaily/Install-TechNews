@@ -1,0 +1,228 @@
+# =====================================================================
+# TechNewsDaily Installer - One-Click Setup for Any User
+# Creates folder, installs wkhtmltopdf, writes main script, schedules task
+# =====================================================================
+
+Write-Host "=== TechNewsDaily Installer ===" -ForegroundColor Cyan
+
+# Prompt for email
+$email = Read-Host "Enter the email address where the daily report should be sent"
+
+if (-not $email -or $email -notmatch "@") {
+    Write-Host "Invalid email. Installer aborted." -ForegroundColor Red
+    exit
+}
+
+# Paths
+$BasePath = "C:\TechNewsDaily"
+$EmailFile = "$BasePath\email.txt"
+$MainScript = "$BasePath\Get-TechNews.ps1"
+$LogFile = "$BasePath\Installer.log"
+
+# Create folder
+if (-not (Test-Path $BasePath)) {
+    New-Item -ItemType Directory -Path $BasePath | Out-Null
+}
+
+Add-Content $LogFile "[$(Get-Date)] Created folder: $BasePath"
+
+# Save email
+$email | Out-File -FilePath $EmailFile -Encoding UTF8
+Add-Content $LogFile "[$(Get-Date)] Saved email: $email"
+
+# =====================================================================
+# Download & Install wkhtmltopdf silently
+# =====================================================================
+
+Write-Host "Installing wkhtmltopdf..." -ForegroundColor Yellow
+Add-Content $LogFile "[$(Get-Date)] Installing wkhtmltopdf..."
+
+$wkurl = "https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.6/wkhtmltox-0.12.6-1.msvc2015-win64.exe"
+$wkexe = "$BasePath\wkhtmltopdf-installer.exe"
+
+Invoke-WebRequest -Uri $wkurl -OutFile $wkexe -UseBasicParsing
+
+Start-Process -FilePath $wkexe -ArgumentList "/S" -Wait
+
+Add-Content $LogFile "[$(Get-Date)] wkhtmltopdf installed."
+
+# =====================================================================
+# Write the main script (Get-TechNews.ps1)
+# =====================================================================
+
+$MainScriptContent = @'
+<<<PLACEHOLDER>>> 
+'@
+
+# Replace placeholder with actual script
+# (We insert the full Get-TechNews.ps1 content here)
+$MainScriptContent = $MainScriptContent -replace "<<<PLACEHOLDER>>>", @'
+# =====================================================================
+# TechNewsDaily - SYSTEM-Safe PowerShell 7 Version (PDF + HTML)
+# Grouped by feed, strict dedupe, 10 articles per feed
+# =====================================================================
+
+# Force STA mode (required for Outlook COM)
+if ([Threading.Thread]::CurrentThread.ApartmentState -ne "STA") {
+    pwsh.exe -STA -File $PSCommandPath
+    exit
+}
+
+# Paths
+$BasePath = "C:\TechNewsDaily"
+$EmailFile = "$BasePath\email.txt"
+$LogFile = "$BasePath\TechNewsDaily.log"
+$HtmlFile = "$BasePath\TechNewsDaily.html"
+$PdfFile = "$BasePath\TechNewsDaily.pdf"
+$Wkhtml = "C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+
+function Log {
+    param([string]$Message)
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    Add-Content -Path $LogFile -Value "$timestamp - $Message"
+}
+
+Log "=== Script started ==="
+
+if (-not (Test-Path $EmailFile)) {
+    Log "ERROR: email.txt not found."
+    exit
+}
+$Recipient = Get-Content $EmailFile -ErrorAction Stop
+
+function Clean-Node {
+    param([object]$Node)
+
+    if ($Node -is [System.Xml.XmlElement]) {
+        $text = $Node.InnerText
+    }
+    elseif ($Node -is [System.Xml.XmlCDataSection]) {
+        $text = $Node.Value
+    }
+    else {
+        $text = [string]$Node
+    }
+
+    $text = $text -replace '<[^>]+>', ''
+    $text = $text -replace '\s+', ' '
+    return $text.Trim()
+}
+
+$Feeds = @(
+    "https://feeds.arstechnica.com/arstechnica/technology-lab",
+    "https://www.wired.com/feed/rss",
+    "https://techcrunch.com/feed/",
+    "https://www.theverge.com/rss/index.xml",
+    "https://www.engadget.com/rss.xml",
+    "https://www.zdnet.com/news/rss.xml",
+    "https://www.cnet.com/rss/news/",
+    "https://krebsonsecurity.com/feed/",
+    "https://www.bleepingcomputer.com/feed/",
+    "https://www.darkreading.com/rss.xml",
+    "https://www.microsoft.com/en-us/security/blog/feed/",
+    "https://azure.microsoft.com/en-us/blog/feed/",
+    "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
+    "https://cloud.google.com/blog/topics/rss.xml",
+    "https://openai.com/blog/rss/",
+    "https://ai.googleblog.com/feeds/posts/default",
+    "https://developer.nvidia.com/blog/feed/"
+)
+
+$Articles = @()
+
+foreach ($Feed in $Feeds) {
+    try {
+        $rss = Invoke-WebRequest -Uri $Feed -UseBasicParsing -TimeoutSec 20
+        $xml = [xml]$rss.Content
+
+        $items = $xml.rss.channel.item | Select-Object -First 10
+
+        foreach ($item in $items) {
+            $Summary = Clean-Node $item.description
+            if (-not $Summary) { $Summary = "No summary available." }
+
+            $Articles += [PSCustomObject]@{
+                Feed    = $Feed
+                Title   = $item.title.Trim()
+                Link    = $item.link.Trim()
+                Summary = $Summary
+            }
+        }
+    }
+    catch {}
+}
+
+$Articles = $Articles |
+    Sort-Object Title -Unique |
+    Sort-Object Link -Unique
+
+$Html = @"
+<html>
+<head>
+<style>
+body { font-family: Arial; margin: 20px; }
+h2 { font-size: 26px; }
+.feed-title { font-size: 22px; margin-top: 30px; }
+.title { font-size: 18px; font-weight: bold; margin-top: 20px; }
+.summary { margin-top: 5px; font-size: 14px; }
+.url { margin-top: 5px; font-size: 12px; color: #555; }
+a { color: #0645AD; text-decoration: underline; }
+</style>
+</head>
+<body>
+<h2>Daily Tech News</h2>
+"@
+
+foreach ($Feed in $Feeds) {
+    $FeedArticles = $Articles | Where-Object { $_.Feed -eq $Feed }
+    if ($FeedArticles.Count -eq 0) { continue }
+
+    $Html += "<div class='feed-title'>$Feed</div>"
+
+    foreach ($A in $FeedArticles) {
+        $CleanSummary = Clean-Node $A.Summary
+
+        $Html += @"
+<div class='title'>$($A.Title)</div>
+<div class='summary'>$CleanSummary</div>
+<div class='url'><a href='$($A.Link)'>$($A.Link)</a></div>
+<br><br>
+"@
+    }
+}
+
+$Html += "</body></html>"
+
+$Html | Out-File -FilePath $HtmlFile -Encoding UTF8
+
+& $Wkhtml $HtmlFile $PdfFile
+
+$Outlook = New-Object -ComObject Outlook.Application
+$Mail = $Outlook.CreateItem(0)
+$Mail.To = $Recipient
+$Mail.Subject = "Daily Tech News"
+$Mail.HTMLBody = $Html
+$Mail.Attachments.Add($PdfFile)
+$Mail.Send()
+'@
+
+# Write main script
+$MainScriptContent | Out-File -FilePath $MainScript -Encoding UTF8
+Add-Content $LogFile "[$(Get-Date)] Main script written."
+
+# =====================================================================
+# Create Scheduled Task (8 AM daily)
+# =====================================================================
+
+Write-Host "Creating scheduled task..." -ForegroundColor Yellow
+
+$Action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-File `"$MainScript`""
+$Trigger = New-ScheduledTaskTrigger -Daily -At 8:00AM
+$TaskName = "TechNewsDaily"
+
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -RunLevel Highest -Force
+
+Add-Content $LogFile "[$(Get-Date)] Scheduled task created."
+
+Write-Host "Installation complete!" -ForegroundColor Green
+Write-Host "Daily Tech News will run at 8 AM."
