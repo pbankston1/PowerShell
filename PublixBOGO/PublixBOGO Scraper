@@ -1,0 +1,58 @@
+﻿const { chromium } = require('playwright');
+
+(async () => {
+  try {
+    const userDataDir = process.env.USERPROFILE + '\\AppData\\Local\\Google\\Chrome\\User Data\\Default';
+
+    const browser = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      args: ['--start-minimized'],
+      viewport: { width: 1280, height: 900 }
+    });
+
+    const page = await browser.newPage();
+    await page.goto(
+      'https://www.publix.com/savings/weekly-ad/view-all?merch=hp_viz_nav_bogo',
+      { waitUntil: 'domcontentloaded', timeout: 60000 }
+    );
+
+    await page.waitForTimeout(8000);
+
+    const cards = await page.$$(`li[data-qa-automation="p-card"]`);
+    const products = [];
+
+    for (const card of cards) {
+      const title = await card.$eval('[data-qa-automation="prod-title"] .title', el => el.innerText.trim()).catch(() => '');
+      const desc = await card.$eval('.description', el => el.innerText.trim()).catch(() => '');
+      const badge = await card.$eval('.p-savings-badge__text', el => el.innerText.trim()).catch(() => '');
+      const img = await card.$eval('img', el => el.src).catch(() => '');
+      const itemCode = await card.getAttribute('data-item-code');
+
+      const link = itemCode
+        ? `https://www.publix.com/savings/weekly-ad/view-all?itemCode=${itemCode}`
+        : '';
+
+      if (title) {
+        products.push({ title, desc, badge, img, link });
+      }
+    }
+
+    const html = `
+      <h2>Publix Weekly BOGO Deals</h2>
+      <table style="width:100%; border-collapse:collapse;">
+        ${products.map(p => `
+          <tr style="border-bottom:1px solid #ddd;">
+            <td><a href="${p.link}">${p.title}</a></td>
+            <td>${p.badge || ''}<br>${p.desc || ''}</td>
+            <td>${p.img ? `<img src="${p.img}" style="max-height:80px;">` : ''}</td>
+          </tr>
+        `).join('')}
+      </table>
+    `;
+
+    process.stdout.write(JSON.stringify({ html }));
+    await browser.close();
+  } catch (err) {
+    process.stdout.write(JSON.stringify({ error: err.message }));
+  }
+})();
