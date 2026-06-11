@@ -1,0 +1,169 @@
+# Publix BOGO Automation Installer
+# Creates folder, installs Node, installs Playwright, writes scripts, creates scheduled task
+
+$folder = "C:\PublixBOGO"
+$email = "ENTER-YOUR-EMAIL-HERE"
+
+Write-Host "Creating folder at $folder..."
+New-Item -ItemType Directory -Force -Path $folder | Out-Null
+
+# -------------------------------
+# Install Node.js if missing
+# -------------------------------
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host "Node.js not found. Installing..."
+    $nodeUrl = "https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi"
+    $nodeInstaller = "$env:TEMP\node.msi"
+    Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeInstaller
+    Start-Process msiexec.exe -ArgumentList "/i `"$nodeInstaller`" /qn" -Wait
+    Write-Host "Node.js installed."
+} else {
+    Write-Host "Node.js already installed."
+}
+
+# -------------------------------
+# Install Playwright
+# -------------------------------
+Write-Host "Installing Playwright..."
+Push-Location $folder
+npm init -y | Out-Null
+npm install playwright | Out-Null
+Pop-Location
+
+# -------------------------------
+# Write scraper script
+# -------------------------------
+$scraper = @"
+const { chromium } = require('playwright');
+
+(async () => {
+  try {
+    const userDataDir = process.env.USERPROFILE + '\\AppData\\Local\\Google\\Chrome\\User Data\\Default';
+
+    const browser = await chromium.launchPersistentContext(userDataDir, {
+      headless: false,
+      args: ['--start-minimized'],
+      viewport: { width: 1280, height: 900 }
+    });
+
+    const page = await browser.newPage();
+    await page.goto(
+      'https://www.publix.com/savings/weekly-ad/view-all?merch=hp_viz_nav_bogo',
+      { waitUntil: 'domcontentloaded', timeout: 60000 }
+    );
+
+    await page.waitForTimeout(8000);
+
+    const cards = await page.$$(`li[data-qa-automation="p-card"]`);
+    const products = [];
+
+    for (const card of cards) {
+      const title = await card.$eval('[data-qa-automation="prod-title"] .title', el => el.innerText.trim()).catch(() => '');
+      const desc = await card.$eval('.description', el => el.innerText.trim()).catch(() => '');
+      const badge = await card.$eval('.p-savings-badge__text', el => el.innerText.trim()).catch(() => '');
+      const img = await card.$eval('img', el => el.src).catch(() => '');
+      const itemCode = await card.getAttribute('data-item-code');
+
+      const link = itemCode
+        ? `https://www.publix.com/savings/weekly-ad/view-all?itemCode=${itemCode}`
+        : '';
+
+      if (title) {
+        products.push({ title, desc, badge, img, link });
+      }
+    }
+
+    const html = `
+      <h2>Publix Weekly BOGO Deals</h2>
+      <table style="width:100%; border-collapse:collapse;">
+        ${products.map(p => `
+          <tr style="border-bottom:1px solid #ddd;">
+            <td><a href="${p.link}">${p.title}</a></td>
+            <td>${p.badge || ''}<br>${p.desc || ''}</td>
+            <td>${p.img ? `<img src="${p.img}" style="max-height:80px;">` : ''}</td>
+          </tr>
+        `).join('')}
+      </table>
+    `;
+
+    process.stdout.write(JSON.stringify({ html }));
+    await browser.close();
+  } catch (err) {
+    process.stdout.write(JSON.stringify({ error: err.message }));
+  }
+})();
+"@
+
+Set-Content -Path "$folder\bogo-scraper.js" -Value $scraper -Encoding UTF8
+
+# -------------------------------
+# Write runner script
+# -------------------------------
+$runner = @"
+\$To = '$email'
+\$folder = 'C:\PublixBOGO'
+
+Push-Location \$folder
+\$json = node .\bogo-scraper.js 2>\$null
+Pop-Location
+
+if (-not \$json) { exit }
+
+\$data = \$json | ConvertFrom-Json
+if (\$data.error) { exit }
+
+\$html = \$data.html
+
+\$outlook = New-Object -ComObject Outlook.Application
+\$mail = \$outlook.CreateItem(0)
+\$mail.To = \$To
+\$mail.Subject = 'Publix Weekly BOGO Deals'
+\$mail.HTMLBody = \$html
+\$mail.Send()
+"@
+
+Set-Content -Path "$folder\Get-PublixBOGO.ps1" -Value $runner -Encoding UTF8
+
+# -------------------------------
+# Create scheduled task
+# -------------------------------
+Write-Host "Creating scheduled task..."
+
+$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File `"$folder\Get-PublixBOGO.ps1`""
+$trigger = New-ScheduledTaskTrigger -Daily -At 7am
+Register-ScheduledTask -TaskName "PublixBOGO" -Action $action -Trigger $trigger -RunLevel Highest -Force
+
+# -------------------------------
+# Write README
+# -------------------------------
+$readme = @"
+PUBLIX BOGO AUTOMATION
+======================
+
+This system automatically emails you the Publix BOGO deals every morning at 7AM.
+
+WHAT YOU NEED TO DO:
+--------------------
+1. Make sure Outlook is installed and logged in.
+2. Make sure Chrome is installed.
+3. Make sure your Publix account is logged in on Chrome.
+4. That's it.
+
+FILES INSTALLED:
+----------------
+C:\PublixBOGO\bogo-scraper.js
+C:\PublixBOGO\Get-PublixBOGO.ps1
+
+SCHEDULED TASK:
+---------------
+PublixBOGO (runs daily at 7AM)
+
+TO RUN MANUALLY:
+----------------
+pwsh C:\PublixBOGO\Get-PublixBOGO.ps1
+
+"@
+
+Set-Content -Path "$folder\README.txt" -Value $readme -Encoding UTF8
+
+Write-Host "Installation complete."
