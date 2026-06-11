@@ -1,39 +1,101 @@
-# Publix BOGO Automation Installer
-# Creates folder, installs Node, installs Playwright, writes scripts, creates scheduled task
+Add-Type -AssemblyName System.Windows.Forms
 
-$folder = "C:\PublixBOGO"
-$email = "ENTER-YOUR-EMAIL-HERE"
+# -------------------------------
+# Logging
+# -------------------------------
+$LogPath = "C:\PublixBOGO\install.log"
+New-Item -ItemType Directory -Force -Path "C:\PublixBOGO" | Out-Null
+"=== Publix BOGO Installer Started $(Get-Date) ===" | Out-File $LogPath
 
-Write-Host "Creating folder at $folder..."
-New-Item -ItemType Directory -Force -Path $folder | Out-Null
+function Log($msg) {
+    "$((Get-Date)) - $msg" | Out-File $LogPath -Append
+}
+
+# -------------------------------
+# GUI Email Prompt
+# -------------------------------
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Publix BOGO Setup"
+$form.Width = 400
+$form.Height = 180
+$form.StartPosition = "CenterScreen"
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "Enter your email address:"
+$label.AutoSize = $true
+$label.Top = 20
+$label.Left = 20
+$form.Controls.Add($label)
+
+$textbox = New-Object System.Windows.Forms.TextBox
+$textbox.Width = 330
+$textbox.Top = 50
+$textbox.Left = 20
+$form.Controls.Add($textbox)
+
+$button = New-Object System.Windows.Forms.Button
+$button.Text = "OK"
+$button.Top = 90
+$button.Left = 150
+$button.Add_Click({ $form.Close() })
+$form.Controls.Add($button)
+
+$form.ShowDialog() | Out-Null
+$email = $textbox.Text
+
+Log "Email entered: $email"
+
+# -------------------------------
+# Check Chrome
+# -------------------------------
+$chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+if (-not (Test-Path $chromePath)) {
+    Log "Chrome not found."
+    [System.Windows.Forms.MessageBox]::Show("Google Chrome is not installed. Install Chrome and run installer again.")
+    exit
+}
+Log "Chrome found."
+
+# -------------------------------
+# Check Outlook
+# -------------------------------
+try {
+    $outlook = New-Object -ComObject Outlook.Application
+    Log "Outlook found."
+} catch {
+    Log "Outlook not found."
+    [System.Windows.Forms.MessageBox]::Show("Microsoft Outlook is not installed. Install Outlook and run installer again.")
+    exit
+}
 
 # -------------------------------
 # Install Node.js if missing
 # -------------------------------
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "Node.js not found. Installing..."
+    Log "Node.js not found. Installing..."
     $nodeUrl = "https://nodejs.org/dist/v20.11.1/node-v20.11.1-x64.msi"
     $nodeInstaller = "$env:TEMP\node.msi"
     Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeInstaller
     Start-Process msiexec.exe -ArgumentList "/i `"$nodeInstaller`" /qn" -Wait
-    Write-Host "Node.js installed."
+    Log "Node.js installed."
 } else {
-    Write-Host "Node.js already installed."
+    Log "Node.js already installed."
 }
 
 # -------------------------------
 # Install Playwright
 # -------------------------------
-Write-Host "Installing Playwright..."
-Push-Location $folder
+Log "Installing Playwright..."
+Push-Location "C:\PublixBOGO"
 npm init -y | Out-Null
 npm install playwright | Out-Null
 Pop-Location
+Log "Playwright installed."
 
 # -------------------------------
-# Write scraper script
+# Write scraper
 # -------------------------------
-$scraper = @"
+$scraper = @'
 const { chromium } = require('playwright');
 
 (async () => {
@@ -92,78 +154,47 @@ const { chromium } = require('playwright');
     process.stdout.write(JSON.stringify({ error: err.message }));
   }
 })();
-"@
+'@
 
-Set-Content -Path "$folder\bogo-scraper.js" -Value $scraper -Encoding UTF8
+Set-Content -Path "C:\PublixBOGO\bogo-scraper.js" -Value $scraper -Encoding UTF8
+Log "Scraper written."
 
 # -------------------------------
-# Write runner script
+# Write runner
 # -------------------------------
 $runner = @"
-\$To = '$email'
-\$folder = 'C:\PublixBOGO'
+`$To = '$email'
+`$folder = 'C:\PublixBOGO'
 
-Push-Location \$folder
-\$json = node .\bogo-scraper.js 2>\$null
+Push-Location `$folder
+`$json = node .\bogo-scraper.js 2>`$null
 Pop-Location
 
-if (-not \$json) { exit }
+if (-not `$json) { exit }
 
-\$data = \$json | ConvertFrom-Json
-if (\$data.error) { exit }
+`$data = `$json | ConvertFrom-Json
+if (`$data.error) { exit }
 
-\$html = \$data.html
+`$html = `$data.html
 
-\$outlook = New-Object -ComObject Outlook.Application
-\$mail = \$outlook.CreateItem(0)
-\$mail.To = \$To
-\$mail.Subject = 'Publix Weekly BOGO Deals'
-\$mail.HTMLBody = \$html
-\$mail.Send()
+`$outlook = New-Object -ComObject Outlook.Application
+`$mail = `$outlook.CreateItem(0)
+`$mail.To = `$To
+`$mail.Subject = 'Publix Weekly BOGO Deals'
+`$mail.HTMLBody = `$html
+`$mail.Send()
 "@
 
-Set-Content -Path "$folder\Get-PublixBOGO.ps1" -Value $runner -Encoding UTF8
+Set-Content -Path "C:\PublixBOGO\Get-PublixBOGO.ps1" -Value $runner -Encoding UTF8
+Log "Runner written."
 
 # -------------------------------
 # Create scheduled task
 # -------------------------------
-Write-Host "Creating scheduled task..."
-
-$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File `"$folder\Get-PublixBOGO.ps1`""
+$action = New-ScheduledTaskAction -Execute "pwsh.exe" -Argument "-NoProfile -File `\"C:\PublixBOGO\Get-PublixBOGO.ps1`\""
 $trigger = New-ScheduledTaskTrigger -Daily -At 7am
 Register-ScheduledTask -TaskName "PublixBOGO" -Action $action -Trigger $trigger -RunLevel Highest -Force
+Log "Scheduled task created."
 
-# -------------------------------
-# Write README
-# -------------------------------
-$readme = @"
-PUBLIX BOGO AUTOMATION
-======================
-
-This system automatically emails you the Publix BOGO deals every morning at 7AM.
-
-WHAT YOU NEED TO DO:
---------------------
-1. Make sure Outlook is installed and logged in.
-2. Make sure Chrome is installed.
-3. Make sure your Publix account is logged in on Chrome.
-4. That's it.
-
-FILES INSTALLED:
-----------------
-C:\PublixBOGO\bogo-scraper.js
-C:\PublixBOGO\Get-PublixBOGO.ps1
-
-SCHEDULED TASK:
----------------
-PublixBOGO (runs daily at 7AM)
-
-TO RUN MANUALLY:
-----------------
-pwsh C:\PublixBOGO\Get-PublixBOGO.ps1
-
-"@
-
-Set-Content -Path "$folder\README.txt" -Value $readme -Encoding UTF8
-
-Write-Host "Installation complete."
+[System.Windows.Forms.MessageBox]::Show("Publix BOGO Automation Installed Successfully!")
+Log "Installer finished."
